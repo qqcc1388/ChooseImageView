@@ -1,0 +1,48 @@
+.chooseImageView {
+  .choose-img-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    .img-container {
+      height: 203px;
+      width: calc((100% - 40px) / 3);
+      margin-top: 20px;
+      margin-left: 20px;
+      position: relative;
+      overflow: hidden;
+      border-radius: 16px;
+      &:nth-child(3n + 1) {
+        margin-left: 0;
+      }
+      &:last-child {
+        margin-bottom: 20px;
+      }
+
+      .img {
+        width: 100%;
+        height: 100%;
+        background-color: #F9F9F9;
+      }
+
+      .flag {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100px;
+        height: auto;
+      }
+
+      .img-delete {
+        background-color: rgba($color: #000000, $alpha: 0.3);
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 50px;
+        line-height: 50px;
+        text-align: center;
+        font-size: 22px;
+        color: white;
+      }
+    }
+  }
+}
