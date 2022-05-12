@@ -10,6 +10,7 @@ taro react 图片上传组件
 - [操作](#操作)
   - [图片添加](#图片添加)
   - [图片压缩](#图片压缩)
+  - [图片压缩优化](#图片压缩优化)
   - [图片上传](#图片上传)
   - [图片处理](#图片处理)
   - [图片删除](#图片删除)
@@ -264,6 +265,101 @@ ctx.draw(false,
   }, interval)
 )
 ```
+
+### 图片压缩优化
+  上面通过异步做图片压缩能解决图片压缩的问题，但是最近在实际应用场景发现如果通过拍照拍出来的照片然后在通过相册中去上传图片会导致上传的多张图片都是同一张图像的问题，分析了下原因可能是ctx.draw的时候是异步绘制的，而我们多个图片同时压缩也是异步，这样当上一张图片还没有绘制完成，下一张图片又开始绘制，这样导致导出的图片可能并不是当前的需要的图片，基于这问题，于是把源代码做了相应改造，让图片多个异步相互依赖依次执行 也就是上一张图片压缩完成，再做下一张图片的压缩，这里采用采用for循环嵌套await来实现 具体代码如下:
+```
+  /// 图片压缩
+  compressfiles = async (uploadFiles = []) => {
+    let that = this
+    let files = []
+    const count = uploadFiles?.length || 0
+    Taro.showLoading({
+      title: '图片压缩中'
+    })
+
+    return new Promise(async (resolve, reject) => {
+      for (let index = 0; index < count; index++) {
+        const file = uploadFiles[index]
+        const res = await this.compressfile(file)
+        console.log(index)
+        files.push(res)
+        if (index === count - 1) {
+          Taro.hideLoading()
+          resolve(files)
+        }
+      }
+    })
+  }
+
+  /// 单个图片压缩
+  compressfile = async (file) => {
+    let that = this
+    return new Promise((resolve, reject) => {
+      /// 压缩图片  图片小于300k直接上传 如果大于300k则压缩图片大小
+      const maxSize = 300 * 1024
+      const fileSize = file.size
+      if (fileSize > maxSize) {
+        Taro.getImageInfo(
+          {
+            src: file.path,
+            success: async (data) => {
+              //---------利用canvas压缩图片--------------
+              var canvasWidth = data.width //图片原始长宽
+              var canvasHeight = data.height
+
+              if (canvasWidth > 500) {
+                canvasWidth = 500
+                canvasHeight = canvasHeight / (data.width / 500)
+              }
+              that.setState({
+                canvasWidth,
+                canvasHeight
+              })
+              let interval = 500
+              /// 时间处理 根据图片大小 在导出图片时延时一定时间后开始处理返回数据，防止数据未导出成功
+              const kb = fileSize / 1000
+              if (kb < 1000) {
+                interval = 500
+              } else {
+                interval = kb / 20
+              }
+
+              //----------绘制图形并取出图片路径--------------
+              var ctx = Taro.createCanvasContext('myCanvas')
+              ctx.drawImage(file.path, 0, 0, canvasWidth, canvasHeight)
+              ctx.draw(false,
+                setTimeout(() => {
+                  Taro.canvasToTempFilePath({
+                    canvasId: 'myCanvas',
+                    destWidth: canvasWidth,
+                    destHeight: canvasHeight,
+                    success: async function (data1) {
+                      console.log(data1.tempFilePath)
+                      resolve({
+                        path: data1.tempFilePath
+                      })
+                    },
+                    fail: function (data1) {
+                      resolve({
+                        path: data1.tempFilePath
+                      })
+                    }
+                  })
+                }, interval)
+              )
+            }
+          }
+        )
+      } else {
+        resolve(file)
+      }
+    })
+  }
+```
+通过这种方式确实解决了上传重复图片的问题，代价是总的压缩图片的时间延长了(因为是一张张压缩的)，好在问题解决了，当然可能还有其他的更好的解决方案，比如给每张图片设置一张画布Canvas，防止画布冲突，这种可能开销也不小，暂时没有去尝试，
+最后说一点 ctx.draw中的settimeout时间一定要设置好比较合适的值，否则导出的图片会是空白
+
 ### 图片上传 
 图片上传使用uploadFile方法 这里同样通过Promise.all发起异步多图片上传，直到所有图片均上传完成拿到上传图片返回的地址回调显示
 ```
