@@ -45,14 +45,15 @@ export default class ChooseImageView extends Component {
       const count = maxCount - files.length + 1
       Taro.chooseImage({
         count: count, // 默认9
-        sizeType: ['compressed'], // 可以指定是原图还是压缩图，默认二者都有
+        isSaveToAlbum: false,
+        sizeType: ['original', 'compressed'], // 可以指定是原图还是压缩图，默认二者都有
         sourceType: ['album', 'camera'], // 可以指定来源是相册还是相机，默认二者都有，在H5浏览器端支持使用 `user` 和 `environment`分别指定为前后摄像头
         success: async function (res) {
           // 返回选定照片的本地文件路径列表，tempFilePath可以作为img标签的src属性显示图片
           var tempFilePaths = res.tempFilePaths
 
           /// 图片压缩
-          const tmpFiles = await that.compressfile(res.tempFiles)
+          const tmpFiles = await that.compressfiles(res.tempFiles)
 
           /// 将选中的图片存在files中 
           var tmpFileList = tmpFiles.map(file => {
@@ -81,77 +82,92 @@ export default class ChooseImageView extends Component {
     }
   }
 
-  /// 图片压缩
-  compressfile = async (uploadFiles = []) => {
+  /// 单个图片压缩
+  compressfile = async (file) => {
     let that = this
-    const promises = uploadFiles.map(file => {
-      return new Promise((resolve, reject) => {
-        /// 压缩图片  图片小于300k直接上传 如果大于300k则压缩图片大小
-        const maxSize = 300 * 1024
-        const fileSize = file.size
-        if (fileSize > maxSize) {
-          Taro.getImageInfo(
-            {
-              src: file.path,
-              success: async (data) => {
-                //---------利用canvas压缩图片--------------
-                var canvasWidth = data.width //图片原始长宽
-                var canvasHeight = data.height
+    return new Promise((resolve, reject) => {
+      /// 压缩图片  图片小于300k直接上传 如果大于300k则压缩图片大小
+      const maxSize = 300 * 1024
+      const fileSize = file.size
+      if (fileSize > maxSize) {
+        Taro.getImageInfo(
+          {
+            src: file.path,
+            success: async (data) => {
+              //---------利用canvas压缩图片--------------
+              var canvasWidth = data.width //图片原始长宽
+              var canvasHeight = data.height
 
-                if (canvasWidth > 500) {
-                  canvasWidth = 500
-                  canvasHeight = canvasHeight / (data.width / 500)
-                }
-                that.setState({
-                  canvasWidth,
-                  canvasHeight
-                })
-                let interval = 500
-                /// 时间处理 根据图片大小 在导出图片时延时一定时间后开始处理返回数据，防止数据未导出成功
-                const kb = fileSize / 1000
-                if (kb < 1000) {
-                  interval = 500
-                } else {
-                  interval = kb / 20
-                }
-
-                //----------绘制图形并取出图片路径--------------
-                var ctx = Taro.createCanvasContext('myCanvas', that)
-                ctx.drawImage(file.path, 0, 0, canvasWidth, canvasHeight)
-                ctx.draw(false,
-                  setTimeout(() => {
-                    Taro.canvasToTempFilePath({
-                      canvasId: 'myCanvas',
-                      destWidth: canvasWidth,
-                      destHeight: canvasHeight,
-                      success: async function (data1) {
-                        console.log(data1.tempFilePath)
-                        resolve({
-                          path: data1.tempFilePath
-                        })
-                      },
-                      fail: function (data1) {
-                        resolve({
-                          path: data1.tempFilePath
-                        })
-                      }
-                    }, that)
-                  }, interval)
-                )
+              if (canvasWidth > 500) {
+                canvasWidth = 500
+                canvasHeight = canvasHeight / (data.width / 500)
               }
+              that.setState({
+                canvasWidth,
+                canvasHeight
+              })
+              let interval = 500
+              /// 时间处理 根据图片大小 在导出图片时延时一定时间后开始处理返回数据，防止数据未导出成功
+              const kb = fileSize / 1000
+              if (kb < 1000) {
+                interval = 500
+              } else {
+                interval = kb / 20
+              }
+
+              //----------绘制图形并取出图片路径--------------
+              var ctx = Taro.createCanvasContext('myCanvas')
+              ctx.drawImage(file.path, 0, 0, canvasWidth, canvasHeight)
+              ctx.draw(false,
+                setTimeout(() => {
+                  Taro.canvasToTempFilePath({
+                    canvasId: 'myCanvas',
+                    destWidth: canvasWidth,
+                    destHeight: canvasHeight,
+                    success: async function (data1) {
+                      console.log(data1.tempFilePath)
+                      resolve({
+                        path: data1.tempFilePath
+                      })
+                    },
+                    fail: function (data1) {
+                      resolve({
+                        path: data1.tempFilePath
+                      })
+                    }
+                  })
+                }, interval)
+              )
             }
-          )
-        } else {
-          resolve(file)
-        }
-      })
+          }
+        )
+      } else {
+        resolve(file)
+      }
     })
+  }
+
+  /// 图片压缩
+  compressfiles = async (uploadFiles = []) => {
+    let that = this
+    let files = []
+    const count = uploadFiles?.length || 0
     Taro.showLoading({
       title: '图片压缩中'
     })
-    const list = await Promise.all(promises)
-    Taro.hideLoading()
-    return list
+
+    return new Promise(async (resolve, reject) => {
+      for (let index = 0; index < count; index++) {
+        const file = uploadFiles[index]
+        const res = await this.compressfile(file)
+        console.log(index)
+        files.push(res)
+        if (index === count - 1) {
+          Taro.hideLoading()
+          resolve(files)
+        }
+      }
+    })
   }
 
   /// 发起图片上传 异步上传
@@ -280,7 +296,6 @@ export default class ChooseImageView extends Component {
                   key={data.url}
                   onClick={this.onImageClick.bind(this, data)}
                   src={data.url}
-                  lazyLoad
                   mode={data.isAdd ? 'aspectFit' : 'aspectFill'}
                 />
                 {
